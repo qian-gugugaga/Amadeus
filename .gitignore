@@ -9,30 +9,30 @@ out/
 release/
 build/
 
-# 本地配置与密钥
+# 本地配置与密钥（.env.local 放 API key）
 .env
 .env.*
 .local/
+!.env.example
 
-# Live2D 模型资产（体积大、有版权，不进仓库）
+# Live2D 模型与语音资产（体积大、第三方版权，不进仓库）
 model/
 **/model/*.moc3
 **/model/*.png
-
-# 语音模型与参考音频
+**/model/*.webp
+*.moc3
 *.pth
 *.ckpt
 voices/
+
+# 临时产物（截图草稿、连拍、DOM 导出）
+tmp-*/
+.tmp/
+/*.png
+/dom*.html
+.edge-*/
 
 # 系统垃圾
 .DS_Store
 Thumbs.db
 *.log
-
-# 本地临时产物
-.tmp/
-/shot*.png
-/face*.png
-/dom*.html
-.edge-*/
-
