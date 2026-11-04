@@ -38,6 +38,27 @@ const PROBES = [
 
 const state: Record<string, number> = {}
 
+// 表情：参数目标表 + 淡入进度（exp3 只当作参数模板来源）
+type Expr = {
+  Name: string
+  FadeInTime: number
+  FadeOutTime: number
+  Params: Record<string, number>
+}
+let expData: Expr[] = []
+const exprTarget: Record<string, number> = {}
+let exprFade = 0.4
+let exprProgress = 0
+
+function applyExpression(name: string | null) {
+  const e = name ? expData.find((x) => x.Name === name) : undefined
+  const keep = new Set(e ? Object.keys(e.Params) : [])
+  for (const id of Object.keys(exprTarget)) if (!keep.has(id)) exprTarget[id] = 0
+  if (e) for (const [id, v] of Object.entries(e.Params)) exprTarget[id] = v
+  exprFade = Math.max(0.05, e ? e.FadeInTime : 0.3)
+  exprProgress = 0
+}
+
 async function main() {
   if (!(window as any).Live2DCubismCore) {
     fail('Live2DCubismCore 未加载（检查 /live2dcubismcore.min.js）')
@@ -100,15 +121,46 @@ async function main() {
   const core = im.coreModel
   ;(window as any).__amadeus = { model, core, state }
 
+  // 该模型没有 physics/cdi，参数表从 core 直接读（147 个参数）
+  const available = new Set<string>((core._parameterIds as string[]) ?? [])
+  const readParam = (id: string): number | undefined => {
+    if (!available.has(id)) return undefined
+    try {
+      const i = core.getParameterIndex(id)
+      return i < 0 ? undefined : core.getParameterValueByIndex(i)
+    } catch {
+      return undefined
+    }
+  }
+  const writeParam = (id: string, v: number) => {
+    if (!available.has(id)) return false
+    try {
+      core.setParameterValueById(id, v)
+      return true
+    } catch {
+      return false
+    }
+  }
+
   // 参数注入点：每帧在模型 update 前覆盖
-  im.on('beforeModelUpdate', () => {
+  im.on('beforeModelUpdate', (dt: number) => {
     for (const id of Object.keys(state)) {
       const v = state[id]
       if (v === undefined) continue
-      try {
-        core.setParameterValueById(id, v)
-      } catch {
-        /* 参数不存在时忽略 */
+      writeParam(id, v)
+    }
+    // 表情层：最后写入，压过 idle motion（idle 是 146 条全参数曲线）
+    const ids = Object.keys(exprTarget)
+    if (ids.length) {
+      exprProgress = Math.min(1, exprProgress + (Number.isFinite(dt) ? dt : 0.016) / exprFade)
+      const k = Math.min(1, exprProgress)
+      for (const id of ids) {
+        const target = exprTarget[id]
+        const cur = readParam(id)
+        if (cur === undefined) continue
+        const v = cur + (target - cur) * k
+        writeParam(id, v)
+        state[id] = v // 同步到滑块可见
       }
     }
   })
@@ -162,6 +214,50 @@ async function main() {
       }
     })
   })
+
+  // 表情：官方 ADV 版 32 个 exp3 的参数表，由本页在 beforeModelUpdate 写入
+  try {
+    const res = await fetch('/data/expressions.json')
+    expData = await res.json()
+    log(`· 表情 ${expData.length} 个（参数模板）`)
+  } catch (e) {
+    fail('表情表加载失败：' + (e as Error).message)
+  }
+
+  if (expData.length) {
+    const box = document.createElement('div')
+    box.className = 'row'
+    box.innerHTML = '<label><span>表情 expr</span></label>'
+    const sel = document.createElement('select')
+    const none = document.createElement('option')
+    none.value = ''
+    none.textContent = `（无 / 共 ${expData.length} 个）`
+    sel.appendChild(none)
+    for (const e of expData) {
+      const o = document.createElement('option')
+      o.value = e.Name
+      o.textContent = e.Name.replace(/^exp_/, '')
+      sel.appendChild(o)
+    }
+    sel.addEventListener('change', () => {
+      applyExpression(sel.value || null)
+      log('表情 ' + (sel.value || '清除'))
+    })
+    box.appendChild(sel)
+    controlsEl.appendChild(box)
+
+    // ?exp=angry01 —— 截图/自动化用
+    const expParam = new URLSearchParams(location.search).get('exp')
+    if (expParam) {
+      const hit = expData.find((e) => e.Name === expParam || e.Name === 'exp_' + expParam)
+      if (hit) {
+        sel.value = hit.Name
+        applyExpression(hit.Name)
+      } else {
+        fail('表情不存在：' + expParam)
+      }
+    }
+  }
 
   // idle 播完自动续（该模型的 idle 是 Loop=False）
   model.on('motionEnded', (name: string) => {

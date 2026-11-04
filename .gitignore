@@ -29,7 +29,8 @@ voices/
 Thumbs.db
 *.log
 
-# 本地截图/临时产物（docs/shots 里的归档截图例外）
+# 本地临时产物
+.tmp/
 /shot*.png
 /face*.png
 /dom*.html

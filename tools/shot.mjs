@@ -68,6 +68,15 @@ while (Date.now() < deadline) {
 }
 if (!ok) console.error(`timeout waiting for: ${waitText}`)
 
+// 表情淡入需要时间，默认再等 1.2s 让 exp3 应用完成
+const settle = Number(process.argv[6] ?? 1200)
+const js = process.argv[7]
+if (js) {
+  const r = await send('Runtime.evaluate', { expression: js, returnByValue: true, awaitPromise: true })
+  if (r.result?.exceptionDetails) console.error('eval error', JSON.stringify(r.result.exceptionDetails))
+}
+await new Promise((r) => setTimeout(r, settle))
+
 const shot = await send('Page.captureScreenshot', clip ? { format: 'png', clip } : { format: 'png' })
 writeFileSync(out, Buffer.from(shot.result.data, 'base64'))
 console.log(ok ? 'ok' : 'timeout', '->', out)

@@ -220,6 +220,26 @@
 
 > 待验证：pixi-live2d-display 能否在运行时注册内存中的 `CubismMotion`（而不是从磁盘加载）。这条不成立的话，B 只能靠「写进模型目录 + reload」实现。
 
+### 5.1 参数优先级（踩过坑后的硬约定）
+
+同一帧里参数是「后写覆盖先写」，顺序固定为：
+
+```
+motion（含 idle，高松灯 idle 有 146 条全参数曲线）
+  → expression(exp3)
+  → eyeBlink
+  → Amadeus 表情层 / 口型层（internalModel.on('beforeModelUpdate')）
+```
+
+所以**情绪表情必须走最外层，不能用 `model.expression()`**——否则下一帧就被 idle 写回去。
+已在高松灯上验证（`docs/model-tomori.md` 3.1），表情数据形态是「exp3 参数表 + 淡入插值」。
+
+推论两条：
+
+- 表情层写入期间会屏蔽自动眨眼。闭眼类表情（cry）没问题，但眯眼/惊讶类表情要显式把
+  `ParamEyeLOpen/ROpen` 还给眨眼系统，否则会一直瞪着。
+- 口型层与表情层抢 `ParamMouthOpenY`，优先级定为：口型 > 表情（说话时嘴必须跟音频走）。
+
 ## 6. 阶段计划
 
 | 阶段 | 内容 | 工期 | 出口条件 |
@@ -227,7 +247,7 @@
 | **P0** 骨架 | 技术栈确认、Electron 壳、一个能跑的空舞台 | 0.5d | `npm run dev` 出窗口 |
 | **P1** 情绪验证 | 不分 Live2D，纯文本：20 句测试 → 情绪 JSON | 1d | 一致率 ≥ 80% |
 | **P2** 角色卡 | schema 定稿 + 祥子角色卡 + 设定库检索 | 1d | 校验脚本通过 |
-| **P2.5** 参数标定 | 逐参数/组合试出情绪映射表（见 `docs/model-tomori.md`），每个情绪留实测截图 | 1d | 5 个基础情绪有可辨认的截图 |
+| **P2.5** 参数标定 | ✅ 已完成：官方 ADV 版 32 个 exp3 转参数表走表情层（见 `docs/model-tomori.md`），五组表情有实测截图 | 1d | 5 个基础情绪有可辨认的截图 |
 | **P3** 舞台 | pixi-live2d-display 加载模型、idle 循环、口型接口 | 2d | 模型能呼吸、能眨眼 |
 | **P4** 查表动作 | reactionRules → motionLibrary → startMotion | 1.5d | 情绪能驱动一段动作 |
 | **P5** 动态动作（选做） | 接鲸语编译器，生成 A 形态轨道 | 2d | 一句话连续编排 |

@@ -3,8 +3,9 @@
 > 标定时间 2026-11-01 ~ 11-04，对应 `model/tomori/live2d_tomori_001_live_01.moc3`。
 > 截图证据在 `docs/shots/`，四张均为 1400×900 视口下按 `420,110,240,220` 裁剪、2 倍缩放。
 
-**结论一句话**：这个模型**不能**靠 `Paramangry = 1` 这种「表情开关」驱动。开关型参数幅度很弱，
-真正有辨识度的是「眼睛开合/笑眼 + 眉毛形态 + 嘴开合 + 头角度」这四组基础参数的组合。
+**结论一句话**：表情用官方 ADV 版的 **32 个 exp3 参数模板**，但**不能直接 `model.expression()`**——
+exp3 会被 idle motion 的 146 条全参数曲线覆盖。正确做法是在 `beforeModelUpdate` 里把 exp3 的参数
+作为「表情层」最后写入（见 3.1），这样眼睛、眉毛、腮红全部生效；实测 cry / smile / angry 辨识度很高。
 
 ---
 
@@ -14,18 +15,18 @@
 |---|---|
 | moc3 | 1.79 MB，MOC3 魔数，Version 3 |
 | 贴图 | 2 张 **webp**（417 KB + 233 KB），pixi 6.5.10 直接加载无问题（已实测） |
-| 参数 | 135 个 |
+| 参数 | 147 个（`coreModel._parameterIds`） |
 | 动作 | 9 段 motion3：`mtn_idle_01`(4.0s) `mtn_action_01`(4.98s) `mtn_finish_01` `mtn_play01_01~03`(10.65s 各) `mtn_play02_01~03` |
 | `physics3.json` | **无** |
 | `cdi3.json` | **无** |
-| `exp3.json` | **无** |
+| `exp3.json` | **LIVE 版没有**；已从官方 ADV 版（sakiko.app 的 `001_adv-tomori_001_casual_spring_01`）补入 **32 个**到 `Expressions/` |
 | model3 Groups | `EyeBlink = [ParamEyeLOpen, ParamEyeROpen]`、`LipSync = [ParamMouthOpenY]` |
 
-动作是游戏演出用的（9 段），不是情绪动作。情绪只能靠参数组合，没有现成的「愤怒动作」可以播。
+动作是游戏演出用的（9 段），不是情绪动作。情绪靠**表情层**（第 3 节）解决。
 
 ---
 
-## 2. 参数分组（135 个）
+## 2. 参数分组
 
 ### 2.1 头部与身体（`motion` 层会用到）
 
@@ -72,19 +73,19 @@
 | `ParamMouthside` / `ParamMouthupdawn` | — | 嘴角左右/上下，待试 |
 | `ParamMouthStrength` | — | 嘴部力度，待试 |
 
-### 2.5 表情开关（弱，不建议单独用）
+### 2.5 表情开关（单独用弱，但属于 exp3 的一部分）
 
 `Paramsmile01` `Paramangry` `Paramsad` `Paramsad_01` `Paramfun` `Paramsurprised_01` `ParamCheek`
-`ParamCheek2` `ParamCheek3` —— 均为 0..1。实测单独置 1 只改眉毛一小块，整体辨识度低。
-它们大概是「配合贴图替换」用的，但模型没带 exp3，所以效果残缺。
+`ParamCheek2` `ParamCheek3` —— 均为 0..1。单独置 1 只改眉毛一小块，因为官方是**整套值一起给**的
+（见 3.1）。单独用它们等于只给了一半信号。
 
 ### 2.6 眼泪 / 红晕 / 抖动
 
 | 参数 | 实测 |
 |---|---|
-| `ParamTear` | **置 1 无可见变化**（待查：可能要配合 `Param_tears_puru`，或需要更大的值域） |
+| `ParamTear` | 属于 cry01 参数组；本模型**没有泪珠贴图**，所以只出「闭眼忍哭」不出眼泪 |
 | `Param_tears_puru` | 泪光抖动 |
-| `ParamCheek*` | 红晕，弱 |
+| `ParamCheek*` | 红晕，exp3 里给的幅度很大，效果明显 |
 | `ParamEyeRShakingX/Y` `ParamEyeLShakingX2/3` `ParameyeLlashShakingX` 等 | 眼部抖动 |
 
 ### 2.7 手（语义未知，必须肉眼逐个试）
@@ -107,7 +108,47 @@
 
 ---
 
-## 3. 已验证的情绪组合（可直接抄）
+## 3. 表情层机制（核心）
+
+### 3.1 为什么不能直接播 exp3
+
+`mtn_idle_01` 有 **146 条曲线**，把 `ParamAngle*`、`ParamEyeLOpen`、`Paramsmile01`、`Paramangry`、
+`ParamTear`、`ParamMouthForm`、所有 `hand_R_*` / `paramArmR*` / `ParamHair*` / `ParamSkirtFuwa1`
+全写了一遍。Cubism 的 motion 每帧覆盖它涉及的参数，所以：
+
+- `model.expression('exp_cry01.exp3')` 应用后，下一帧 idle 曲线就把眼睛写回 1 → 闭眼失效；
+- 停掉 motion 后 `eyeBlink` 又接管（pixi 源码：`if (!motionUpdated) this.eyeBlink.updateParameters(...)`）；
+- 唯一稳的写入点是 `internalModel.on('beforeModelUpdate')`，它在 motion / expression / eyeBlink 之后。
+
+### 3.2 正确写法
+
+表情不交给 `expressionManager`，而是转成「参数目标表」自己写：
+
+```ts
+// 1) 构建期把 exp3 转成参数表 → app/public/model/tomori/expressions.json
+//    { Name, FadeInTime, FadeOutTime, Params: { ParamEyeLOpen: 0, ... } }   // 每条 63 个参数
+// 2) 切换表情只改目标表，不调 model.expression()
+// 3) 每帧在 beforeModelUpdate 里按 FadeInTime 插值写入 —— 最后写入 = 最高优先级
+```
+
+两个 pixi 0.4 的坑：
+
+- `internalModel.parameters` **不存在**，参数 id 表要读 `coreModel._parameterIds`；
+- 表情参数里有 15 个本模型没有（`ParamTear2` `ParamTears0~3` `ParamPale` `ParamFaceshadow`
+  `ParamSweat` `ParamEmo1~4` `ParamFaceEyeOff` `Param_thinking_eyeeyebrows2/3` 等），写入前要过滤。
+
+### 3.3 效果对照（实测）
+
+| 表情 | 观感 |
+|---|---|
+| `exp_cry01` | 闭眼 + 八字眉 + 腮红，**像在忍哭**（本模型无泪珠贴图，没有眼泪） |
+| `exp_smile02` | 弯月笑眼 + 大片腮红，**最讨喜** |
+| `exp_angry01` | 瞪眼 + 怒眉 + 张嘴，辨识度最高 |
+| `exp_sad01` | 八字眉 + 眼半睁，偏「委屈」，强度弱（依赖缺失的泪珠） |
+
+---
+
+## 4. 降级组合（手搭参数，没有 exp3 时用）
 
 对应截图为 `docs/shots/` 下的文件，同一机位、同一亮度。
 
@@ -119,18 +160,14 @@
 | `sad` | `Paramsad=1, Param_sad_eyebrows=1, ParamEyeLOpen=0.7, ParamEyeROpen=0.7` | `sad.png` | 八字眉 + 眼睛变小，凑合；**眼泪参数没生效** |
 | `surprised` | `Paramsurprised_01=1, ParamEyeLOpen=1.3, ParamEyeROpen=1.3, ParamMouthOpenY=0.6` | `surprised.png` | **瞪眼 + 张嘴**辨识度最高 |
 
-排优先级：`surprised` > `smile` > `angry` > `sad`。sad 最弱，需要补头部下倾
-（`ParamAngleY=-8`）和呼吸变化来撑。
-
 ---
 
-## 4. 已知的坑
+## 5. 已知的坑
 
-1. **开关型表情参数不可靠**：`Paramangry` / `Paramsad` 单独用几乎无效果，必须配眉毛参数。
-   别把它们当成「一个值切换一套表情」。
+1. **exp3 必须走表情层**：直接 `model.expression()` 会被 idle motion 覆盖（见 3.1）。
 2. **`ParamMouthForm` 几乎无效**：嘴形主要靠 `ParamMouthOpenY` 开合，想表达「撇嘴」
    得靠头角度 + 眉毛，或者干脆不做。
-3. **`ParamTear` 无效**：哭泣只能用「眼睛变小 + 八字眉 + 头低」，或者后续加一个贴图层的眼泪。
+3. **本模型没有泪珠贴图**：哭泣只能用「闭眼 + 八字眉 + 腮红」（即 cry01 的参数），眼泪做不出来。
 4. **idle motion 会写 `ParamAngleX/Y/Z`、`ParamBreath`**：想强制某个头角度，要在
    `beforeModelUpdate` 里覆盖，且注意 motion 可能每帧重设（实测我的覆盖是生效的，
    因为 pixi 的 `beforeModelUpdate` 在 motion 之后）。
@@ -138,17 +175,17 @@
 
 ---
 
-## 5. 落在项目里的方式
+## 6. 落在项目里的方式
 
 - 这张映射表属于**引擎侧资产**，跟具体模型绑定，放在 `model/<name>/params.md` 或本文档。
 - 角色卡（`docs/PLAN.md` 的 `amadeus.character-card` v1）只写**粗维度**：
-  `{ emotion: "angry", intensity: "high" }` → 引擎查这张表拿到具体参数。
+  `{ emotion: "angry", intensity: "high" }` → 引擎查这张表拿到表情名/参数。
 - 换模型 = 重写这张表，角色卡不动。这是把「模型适配」和「角色人格」解耦的关键。
 
-## 6. 还没做的
+## 7. 还没做的
 
 - [ ] `hand_R_01` ~ `hand_R_10` 逐个截图，建手势索引
-- [ ] `ParamTear` 的正确用法（试 `Param_tears_puru` 组合、试超出 0..1 的值）
 - [ ] 头发/裙子跟随（照鲸语 `applyIdle` 移植）
 - [ ] 眼睛抖动组参数（`ShakingX` 等）的语义
 - [ ] 9 段 motion 的语义标注（哪段适合当「点头」「转身」）
+- [ ] 表情强度分级（现在只有 0/1，需要按 intensity 缩放参数组）
