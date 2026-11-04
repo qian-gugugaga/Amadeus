@@ -17,7 +17,11 @@ function fail(msg: string) {
   log('✗ ' + msg, true)
 }
 
-const MODEL_URL = '/model/tomori/live2d_tomori_001_live_01.model3.json'
+// 默认剧情 ADV 版（63 段语义动作 + 32 表情 + 物理）；?model=live 切回 LIVE 演出版
+const MODEL_DIR =
+  new URLSearchParams(location.search).get('model') === 'live'
+    ? '/model/tomori/live2d_tomori_001_live_01.model3.json'
+    : '/model/adv-tomori/adv_live2d_tomori_001_live_01.model3.json'
 
 // 要探的参数：情绪开关 + 头部姿态 + 口型
 const PROBES = [
@@ -95,7 +99,7 @@ async function main() {
 
   let model: Live2DModel
   try {
-    model = await Live2DModel.from(MODEL_URL, { autoInteract: false })
+    model = await Live2DModel.from(MODEL_DIR, { autoInteract: false })
     log('✓ 模型加载成功  ' + Math.round(model.width) + '×' + Math.round(model.height))
   } catch (e) {
     fail('模型加载失败：' + (e as Error).message)
@@ -231,10 +235,23 @@ async function main() {
     log(`· ${id}  [${min} .. ${max}]  default ${def}`)
   }
 
-  // 动作按钮
-  document.querySelectorAll<HTMLButtonElement>('button[data-motion]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const name = btn.dataset.motion!
+  // 动作列表：从模型的 motion groups 动态生成（LIVE 9 段 / ADV 63 段）
+  const motionGroups: string[] = Object.keys(im.motionManager?.definitions ?? {})
+  const motionSelect = document.getElementById('motion-select') as HTMLSelectElement
+  if (motionSelect && motionGroups.length) {
+    const hint = document.createElement('option')
+    hint.value = ''
+    hint.textContent = `（选一个动作 / 共 ${motionGroups.length}）`
+    motionSelect.appendChild(hint)
+    for (const g of motionGroups) {
+      const o = document.createElement('option')
+      o.value = g
+      o.textContent = g
+      motionSelect.appendChild(o)
+    }
+    motionSelect.addEventListener('change', async () => {
+      const name = motionSelect.value
+      if (!name) return
       try {
         await model.motion(name)
         log('▶ ' + name)
@@ -242,7 +259,8 @@ async function main() {
         fail('动作播放失败 ' + name + '：' + (e as Error).message)
       }
     })
-  })
+    log(`· 动作 ${motionGroups.length} 段`)
+  }
 
   // 表情：官方 ADV 版 32 个 exp3 的参数表，由本页在 beforeModelUpdate 写入
   try {
@@ -337,7 +355,11 @@ async function main() {
       history.push({ role: 'assistant', content: String(reply.text) })
       const emo = emotionMap.get(String(reply.emotion))
       applyExpression(emo?.exp ?? null)
-      log(`回复 ${reply.emotion}/${reply.intensity} → ${emo?.exp ?? '无'}${reply.mock ? ' (mock)' : ''}`)
+      // 动作与表情同时触发；动作播完由 motionEnded 送回 idle
+      if (emo?.motion && motionGroups.includes(emo.motion)) {
+        void model.motion(emo.motion).catch(() => {})
+      }
+      log(`回复 ${reply.emotion}/${reply.intensity} → ${emo?.exp ?? '无'} + ${emo?.motion ?? '只换表情'}${reply.mock ? ' (mock)' : ''}`)
     } catch (e) {
       fail('对话失败：' + (e as Error).message)
     } finally {
@@ -353,18 +375,18 @@ async function main() {
     void send(text)
   })
 
-  // idle 播完自动续（该模型的 idle 是 Loop=False）
-  model.on('motionEnded', (name: string) => {
-    if (name === 'mtn_idle_01') {
-      setTimeout(() => model.motion('mtn_idle_01').catch(() => {}), 50)
+  // 任何动作播完都回到 idle（idle 自身结束也会续播）
+  const idleGroup = motionGroups.find((g) => /idle/i.test(g)) ?? motionGroups[0]
+  if (idleGroup) {
+    model.on('motionEnded', () => {
+      setTimeout(() => model.motion(idleGroup).catch(() => {}), 60)
+    })
+    try {
+      await model.motion(idleGroup)
+      log('▶ ' + idleGroup)
+    } catch (e) {
+      fail('idle 播放失败：' + (e as Error).message)
     }
-  })
-
-  try {
-    await model.motion('mtn_idle_01')
-    log('▶ mtn_idle_01')
-  } catch (e) {
-    fail('idle 播放失败：' + (e as Error).message)
   }
 }
 
