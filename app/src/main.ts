@@ -324,6 +324,11 @@ async function main() {
   const history: { role: string; content: string }[] = []
   let busy = false
 
+  // 只保留最近 10 轮，避免上下文无限增长
+  const trimHistory = () => {
+    while (history.length > 20) history.splice(0, 2)
+  }
+
   const pushMsg = (kind: 'user' | 'ai', text: string, tag?: string) => {
     const d = document.createElement('div')
     d.className = 'msg ' + kind
@@ -342,6 +347,7 @@ async function main() {
     busy = true
     pushMsg('user', text)
     history.push({ role: 'user', content: text })
+    trimHistory()
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
@@ -353,6 +359,7 @@ async function main() {
       if (reply.error) throw new Error(reply.error)
       pushMsg('ai', String(reply.text), `${reply.emotion} · ${Number(reply.intensity).toFixed(2)}`)
       history.push({ role: 'assistant', content: String(reply.text) })
+      trimHistory()
       const emo = emotionMap.get(String(reply.emotion))
       applyExpression(emo?.exp ?? null)
       // 动作与表情同时触发；动作播完由 motionEnded 送回 idle
