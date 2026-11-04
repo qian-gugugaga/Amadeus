@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Amadeus · Live2D 验证台</title>
+    <!-- Cubism Core：必须在任何渲染代码之前加载 -->
+    <script src="/live2dcubismcore.min.js"></script>
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; height: 100vh; overflow: hidden;
+        background: radial-gradient(circle at 50% 20%, #1b2233, #0b0e14 70%);
+        color: #d8dee9; font: 13px/1.5 "Microsoft YaHei", system-ui, sans-serif;
+        display: flex;
+      }
+      #stage-wrap { position: relative; flex: 1; display: grid; place-items: center; }
+      canvas { display: block; max-height: 100vh; }
+      #panel {
+        width: 300px; flex: none; overflow-y: auto;
+        background: #11151d; border-left: 1px solid #232b3a; padding: 14px;
+      }
+      #panel h2 { margin: 0 0 10px; font-size: 13px; letter-spacing: .08em; color: #7f8ea3; font-weight: 600; }
+      .row { margin-bottom: 10px; }
+      .row label { display: flex; justify-content: space-between; font-size: 12px; color: #94a3b8; }
+      .row label b { color: #e2e8f0; font-weight: 500; font-variant-numeric: tabular-nums; }
+      input[type=range] { width: 100%; accent-color: #5b8def; }
+      button {
+        width: 100%; padding: 7px 0; margin-bottom: 6px; cursor: pointer;
+        background: #1c2534; color: #d8dee9; border: 1px solid #2b3547; border-radius: 6px;
+        font: inherit;
+      }
+      button:hover { background: #243043; }
+      #log { margin-top: 12px; font-size: 11px; color: #6b7a90; white-space: pre-wrap; word-break: break-all; }
+      #error { color: #ff7b72; }
+    </style>
+  </head>
+  <body>
+    <div id="stage-wrap">
+      <canvas id="stage"></canvas>
+    </div>
+    <aside id="panel">
+      <h2>参数探针</h2>
+      <div id="controls"></div>
+      <h2>动作</h2>
+      <button data-motion="mtn_idle_01">idle</button>
+      <button data-motion="mtn_action_01">action</button>
+      <button data-motion="mtn_finish_01">finish</button>
+      <button data-motion="mtn_play01_01">play01_01</button>
+      <button data-motion="mtn_play02_01">play02_01</button>
+      <h2>日志</h2>
+      <div id="log">加载中…</div>
+    </aside>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -28,3 +28,10 @@ voices/
 .DS_Store
 Thumbs.db
 *.log
+
+# 本地截图/临时产物（docs/shots 里的归档截图例外）
+/shot*.png
+/face*.png
+/dom*.html
+.edge-*/
+
