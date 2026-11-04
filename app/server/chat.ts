@@ -1,6 +1,8 @@
 // /api/chat 的最小实现：一次调用 → { text, emotion, intensity, gesture }
 // 没有配 key 时返回 mock，保证「输入文字 → 回复 + 表情」这条链路可以先跑通。
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
 export const EMOTION_IDS = [
   'neutral',
@@ -24,22 +26,27 @@ export interface Reply {
   gesture: string
 }
 
-const SYSTEM_PROMPT = `你在扮演一个叫「灯」的女孩，说话短、慢、有点自言自语，不擅长长句。
+// 人设与事实底座：改 server/character/tomori.md 即可，不用动代码
+const CHARACTER = (() => {
+  try {
+    return readFileSync(fileURLToPath(new URL('./character/tomori.md', import.meta.url)), 'utf8')
+  } catch {
+    return ''
+  }
+})()
 
-你必须只输出一个 JSON 对象，不要任何解释、不要 markdown 代码块：
+const SYSTEM_PROMPT = `${CHARACTER}
+
+## 五、输出格式
+
+你在和用户对话。只输出一个 JSON 对象，不要解释、不要 markdown 代码块：
 {"text":"你对用户说的话","emotion":"<情绪>","intensity":<0到1的小数>,"gesture":"none"}
 
-emotion 只能取这些值之一：${EMOTION_IDS.join(' / ')}。
+emotion 只能取：${EMOTION_IDS.join(' / ')}。
+intensity：0.3 以下轻微、0.3~0.7 明显、0.7 以上强烈。
+gesture 现在固定写 "none"。
 
-选 emotion 的规则：
-- 用户骂你、责怪你 → 通常是 anger（委屈地反驳）或 sad（默默受伤），看你此刻的性格倾向；
-- 用户夸你、对你温柔 → joy 或 shy；
-- 用户说奇怪/意外的事 → surprise；
-- 用户问你答不上来的 → think 或 pain；
-- 平常闲聊 → neutral。
-intensity 表示强烈程度：0.3 以下轻微、0.3~0.7 明显、0.7 以上强烈。
-手势现在只有 "none"，genuine 不需要就别写其他值。
-text 里不要出现情绪标签，也不要提到 JSON。`
+记住：上面「硬事实」里的信息就是你的人生。没写的事你不确定，就说不确定——不要编乐队人数、不要编自己会什么乐器。`
 
 interface Config {
   apiKey: string
