@@ -189,3 +189,55 @@ exp3 会被 idle motion 的 146 条全参数曲线覆盖。正确做法是在 `b
 - [ ] 眼睛抖动组参数（`ShakingX` 等）的语义
 - [ ] 9 段 motion 的语义标注（哪段适合当「点头」「转身」）
 - [ ] 表情强度分级（现在只有 0/1，需要按 intensity 缩放参数组）
+
+---
+
+## 8. 剧情 ADV 版（现在是默认模型）
+
+同一角色有两个官方模型包，用途完全不同：
+
+| | LIVE 演出版 `app/public/model/tomori/` | 剧情 ADV 版 `app/public/model/adv-tomori/`（默认） |
+|---|---|---|
+| 来源 | 用户给的 `live2d_tomori_001_live_01.zip` | 从参考站下载（100 文件 / 5.38 MB） |
+| 动作 | 9 段 | **63 段 = 21 个语义动作 × C/L/R** |
+| 表情 | 0 个（已补装 32 个 exp3） | 32 个 exp3（自带） |
+| 物理 | 无 | `physics3.json`（头发/衣服会动） |
+| 每段动作曲线数 | 146 | 66 |
+| 画面 | 全身演出服、手持麦克风 | 全身校服立绘 |
+
+21 个语义动作：
+`angry01` `bye01` `check01` `cry01` `denial01` `denial02` `idle01` `join01` `kime01` `look01`
+`nervous01` `nod01` `nod02` `note01` `question01` `sad01` `serious01` `smile01` `smile02` `surprised01` `thinking01`
+后缀 `_C` / `_L` / `_R` = 角色站在画面中 / 左 / 右，对话场景用 `_C`。
+
+### 8.1 为什么换
+
+实测 LIVE 版的 9 段（`mtn_play01_01` 等）是**演唱会站桩演唱**：从 0 到 10.65 秒，画面变化的像素占比只有 0.1%，参数只是在 -150 基线上小幅摆动。它表达不了"生气/难过"，只能表达"在唱歌"。
+
+ADV 版是**剧情对话立绘**，动作就是给对白配的身体语言。
+
+### 8.2 动作幅度要有预期
+
+ADV 的动作幅度不大——它是立绘不是动画角色。`angry01_C` 全长 3 秒，变化集中在头颈角度和躯干重心，手臂只在胸前小幅摆动。**"愤怒"的观感主要来自表情**，动作负责"这个人动了一下"。
+
+想要更强的情绪，要靠：表情 exp3（已接）+ 身体倾斜参数叠加（`ParamBodyAngleX/Z`）+ 动作。
+
+### 8.3 情绪 → 表情 → 动作
+
+映射表在 `app/public/data/emotions.json`（v2）：
+
+| emotion | 表情 | 动作 |
+|---|---|---|
+| neutral | exp_idle01 | — |
+| joy | exp_smile02 | mtn_smile01_C |
+| laugh | exp_bsmile01 | mtn_smile02_C |
+| anger | exp_angry01 | mtn_angry01_C |
+| sad | exp_sad02 | mtn_sad01_C |
+| cry | exp_cry01 | mtn_cry01_C |
+| surprise | exp_surprised01 | mtn_surprised01_C |
+| shy | exp_shy01 | mtn_nervous01_C |
+| think | exp_serious02 | mtn_thinking01_C |
+| pain | exp_pain01 | mtn_denial01_C |
+
+动作播完由 `motionEnded` 统一送回 idle；表情层持续每帧写入，所以不会被新动作覆盖。
+
