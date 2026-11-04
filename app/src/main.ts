@@ -47,14 +47,28 @@ type Expr = {
 }
 let expData: Expr[] = []
 const exprTarget: Record<string, number> = {}
+const fadingOut = new Set<string>()
+const defaultOfParam = (id: string) => 0
+let defaultOf: (id: string) => number = defaultOfParam
 let exprFade = 0.4
 let exprProgress = 0
 
 function applyExpression(name: string | null) {
   const e = name ? expData.find((x) => x.Name === name) : undefined
   const keep = new Set(e ? Object.keys(e.Params) : [])
-  for (const id of Object.keys(exprTarget)) if (!keep.has(id)) exprTarget[id] = 0
-  if (e) for (const [id, v] of Object.entries(e.Params)) exprTarget[id] = v
+  // 淡出的目标必须是「参数默认值」，不是 0——EyeLOpen 的默认值是 1，淡到 0 会变成闭眼卡住
+  for (const id of Object.keys(exprTarget)) {
+    if (!keep.has(id)) {
+      exprTarget[id] = defaultOf(id)
+      fadingOut.add(id)
+    }
+  }
+  if (e) {
+    for (const [id, v] of Object.entries(e.Params)) {
+      exprTarget[id] = v
+      fadingOut.delete(id)
+    }
+  }
   exprFade = Math.max(0.05, e ? e.FadeInTime : 0.3)
   exprProgress = 0
 }
@@ -142,6 +156,17 @@ async function main() {
     }
   }
 
+  // 参数默认值：表情淡出时回到这里，而不是 0
+  defaultOf = (id: string) => {
+    if (!available.has(id)) return 0
+    try {
+      const i = core.getParameterIndex(id)
+      return i < 0 ? 0 : core.getParameterDefaultValue(i)
+    } catch {
+      return 0
+    }
+  }
+
   // 参数注入点：每帧在模型 update 前覆盖
   im.on('beforeModelUpdate', (dt: number) => {
     for (const id of Object.keys(state)) {
@@ -159,8 +184,13 @@ async function main() {
         const cur = readParam(id)
         if (cur === undefined) continue
         const v = cur + (target - cur) * k
+        // 淡出项到位后交还给 motion / 眨眼，避免永久压住参数
+        if (fadingOut.has(id) && Math.abs(v - target) < 0.01) {
+          delete exprTarget[id]
+          fadingOut.delete(id)
+          continue
+        }
         writeParam(id, v)
-        state[id] = v // 同步到滑块可见
       }
     }
   })
@@ -180,9 +210,8 @@ async function main() {
     const min = core.getParameterMinimumValue(index)
     const max = core.getParameterMaximumValue(index)
     const def = core.getParameterDefaultValue(index)
-    // 预设优先，否则记默认值
+    // 预设优先；未预设时只显示默认值，不写进 state（否则每帧压住 idle 的动作）
     const initial = state[id] ?? def
-    state[id] = initial
 
     const row = document.createElement('div')
     row.className = 'row'

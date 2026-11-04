@@ -72,6 +72,7 @@ if (!ok) console.error(`timeout waiting for: ${waitText}`)
 const settle = Number(process.argv[6] ?? 1200)
 const js = process.argv[7]
 if (js) {
+  await new Promise((r) => setTimeout(r, 600)) // 等页面把下拉框等控件建好
   const r = await send('Runtime.evaluate', { expression: js, returnByValue: true, awaitPromise: true })
   if (r.result?.exceptionDetails) console.error('eval error', JSON.stringify(r.result.exceptionDetails))
 }
