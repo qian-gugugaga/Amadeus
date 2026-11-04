@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "note": "情绪闭集 → 官方 exp3 表情 + 动作。修改后前端与后端都按 id 取用。",
+  "emotions": [
+    { "id": "neutral", "label": "平静", "exp": "exp_idle01", "motion": null },
+    { "id": "joy", "label": "开心", "exp": "exp_smile02", "motion": null },
+    { "id": "laugh", "label": "大笑", "exp": "exp_bsmile01", "motion": null },
+    { "id": "anger", "label": "生气", "exp": "exp_angry01", "motion": null },
+    { "id": "sad", "label": "难过", "exp": "exp_sad02", "motion": null },
+    { "id": "cry", "label": "哭", "exp": "exp_cry01", "motion": null },
+    { "id": "surprise", "label": "惊讶", "exp": "exp_surprised01", "motion": null },
+    { "id": "shy", "label": "害羞", "exp": "exp_shy01", "motion": null },
+    { "id": "think", "label": "思考", "exp": "exp_serious02", "motion": null },
+    { "id": "pain", "label": "为难", "exp": "exp_pain01", "motion": null }
+  ]
+}

@@ -84,7 +84,7 @@ async function main() {
 
   const app = new PIXI.Application({
     view: document.getElementById('stage') as HTMLCanvasElement,
-    resizeTo: document.getElementById('stage-wrap') as HTMLElement,
+    resizeTo: document.getElementById('stage-box') as HTMLElement,
     antialias: true,
     backgroundAlpha: 0,
     resolution: Math.min(window.devicePixelRatio, 2),
@@ -287,6 +287,71 @@ async function main() {
       }
     }
   }
+
+  // 情绪闭集 → 表情映射
+  const emotionMap = new Map<string, { label: string; exp: string; motion: string | null }>()
+  try {
+    const res = await fetch('/data/emotions.json')
+    const j = await res.json()
+    for (const e of j.emotions) emotionMap.set(e.id, e)
+    log(`· 情绪 ${emotionMap.size} 个`)
+  } catch (e) {
+    fail('情绪表加载失败：' + (e as Error).message)
+  }
+
+  // 对话 → /api/chat → 文字 + 表情
+  const msgsEl = document.getElementById('messages')!
+  const chatForm = document.getElementById('chat-form') as HTMLFormElement
+  const chatInput = document.getElementById('chat-input') as HTMLInputElement
+  const history: { role: string; content: string }[] = []
+  let busy = false
+
+  const pushMsg = (kind: 'user' | 'ai', text: string, tag?: string) => {
+    const d = document.createElement('div')
+    d.className = 'msg ' + kind
+    d.textContent = text
+    if (tag) {
+      const s = document.createElement('span')
+      s.className = 'tag'
+      s.textContent = tag
+      d.appendChild(s)
+    }
+    msgsEl.appendChild(d)
+    msgsEl.scrollTop = msgsEl.scrollHeight
+  }
+
+  async function send(text: string) {
+    busy = true
+    pushMsg('user', text)
+    history.push({ role: 'user', content: text })
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ message: text, history: history.slice(0, -1) }),
+      })
+      if (!res.ok) throw new Error('HTTP ' + res.status)
+      const reply = await res.json()
+      if (reply.error) throw new Error(reply.error)
+      pushMsg('ai', String(reply.text), `${reply.emotion} · ${Number(reply.intensity).toFixed(2)}`)
+      history.push({ role: 'assistant', content: String(reply.text) })
+      const emo = emotionMap.get(String(reply.emotion))
+      applyExpression(emo?.exp ?? null)
+      log(`回复 ${reply.emotion}/${reply.intensity} → ${emo?.exp ?? '无'}${reply.mock ? ' (mock)' : ''}`)
+    } catch (e) {
+      fail('对话失败：' + (e as Error).message)
+    } finally {
+      busy = false
+    }
+  }
+
+  chatForm.addEventListener('submit', (ev) => {
+    ev.preventDefault()
+    const text = chatInput.value.trim()
+    if (!text || busy) return
+    chatInput.value = ''
+    void send(text)
+  })
 
   // idle 播完自动续（该模型的 idle 是 Loop=False）
   model.on('motionEnded', (name: string) => {
